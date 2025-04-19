@@ -59,7 +59,7 @@ router.post('/signup', function(req, res) {
                     return res.json(err);
             }
 
-            res.json({success: true, msg: 'Successfully created new user.'})
+            res.json({success: true, msg: `Successfully created new user with username, '${user.username}'.`})
         });
     }
 });
@@ -78,7 +78,7 @@ router.post('/signin', function (req, res) {
             if (isMatch) {
                 var userToken = { id: user.id, username: user.username };
                 var token = jwt.sign(userToken, process.env.SECRET_KEY);
-                res.json ({success: true, token: 'JWT ' + token});
+                res.json ({success: true, token: 'JWT ' + token, username: user.username});
             }
             else {
                 res.status(401).send({success: false, msg: 'Authentication failed.'});
@@ -107,14 +107,39 @@ router.route('/movies/:movieparam')
         var joinReviews = req.query.reviews === 'true';
         var movieparam = req.params.movieparam;
 
-        Movie.findOne({ title: movieparam }).select('title releaseDate genre actors').exec((err, movie) => {
-            if(err) return res.status(400).send(err);
-
-            if(movie === null) 
-                return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
-            
-            return res.status(200).json(movie);
-        });
+        if(joinReviews) {
+            Movie.aggregate([
+                {
+                    $match: { title: movieparam } // match by movie name
+                },
+                {
+                    $lookup: { // join on _id and movieId fields
+                        from: "reviews", 
+                        localField: "_id", 
+                        foreignField: "movieId", 
+                        as: "reviews" 
+                    }
+                }
+            ])
+            .exec((err, result) => {
+                if(err) return res.status(400).send(err);
+    
+                if(result.length == 0) 
+                    return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+                
+                return res.status(200).json(result);
+            });
+        }
+        else {
+            Movie.findOne({ title: movieparam }).select('title releaseDate genre actors').exec((err, movie) => {
+                if(err) return res.status(400).send(err);
+    
+                if(movie === null) 
+                    return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+                
+                return res.status(200).json(movie);
+            });
+        }
     })
     .post((req, res) => { // POST: saves a movie
         var movie = Movie();
@@ -130,14 +155,40 @@ router.route('/movies/:movieparam')
                 else
                     return res.status(400).json(err);
             }
-            res.status(201).json({success: true, msg: 'Successfully created new movie.'})
+            return res.status(201).json({success: true, msg: 'Successfully created new movie.'})
         });
     })
     .all((req, res) => {  // Any other HTTP Method
         res.status(405).send({ message: 'HTTP method not supported.' });
     });
 
+// Reviews route
 
+router.route('/movies/:movieparam/reviews')
+    .post(authJwtController.isAuthenticated, (req, res) => { // POST: saves a movie review from req body
+        var movieparam = req.params.movieparam;
+
+        Movie.findOne({ title: movieparam }).exec((err, movie) => {
+            if(err) return res.status(400).send(err);
+
+            if(movie === null) 
+                return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+            
+            var newReview = Review();
+            newReview.movieId = movie._id;
+            newReview.username = req.body.username;
+            newReview.review = req.body.review;
+            newReview.rating = req.body.rating;
+
+            newReview.save((err) => {
+                if(err) return res.status(400).json({success: false, message: err});
+            });
+            return res.status(201).json(newReview);
+        });
+    })
+    .all((req, res) => {  // Any other HTTP Method
+        res.status(405).send({ message: 'HTTP method not supported.' });
+    });
     
 
 app.use('/', router);
