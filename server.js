@@ -87,30 +87,36 @@ router.post('/signin', function (req, res) {
     })
 });
 
+// Movie routes without param (GET route only)
+
+router.route('/movies')
+    .get((req, res) => {
+        Movie.find().select('title releaseDate genre actors').exec((err, movieList) => {
+            if(err) return res.send(err);
+            return res.status(200).json(movieList);
+        });
+    })
+    .all((req, res) => {  // Any other HTTP Method
+        res.status(405).send({ message: 'HTTP method not supported.' });
+    });
+
+// Movie routes with param
 
 router.route('/movies/:movieparam')
-    .get((req, res) => {
-        // HTTP GET Method
-        // Requires no authentication.
-        // Returns a JSON object with status, message, headers, query, and env.
-        
-        /*var o = getJSONObjectForMovieRequirement(req);
-        o.status = 200;
-        o.message = "GET movies";
-        res.json(o);*/
+    .get((req, res) => { // GET: returns specified movie with review
+        var joinReviews = req.query.reviews === 'true';
+        var movieparam = req.params.movieparam;
 
-        res.status(200).json({ success: true, message: `Getting the movie, ${req.params.movieparam} and ${JSON.stringify(req.query)}.` });
+        Movie.findOne({ title: movieparam }).select('title releaseDate genre actors').exec((err, movie) => {
+            if(err) return res.status(400).send(err);
+
+            if(movie === null) 
+                return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+            
+            return res.status(200).json(movie);
+        });
     })
-    .post((req, res) => {
-        // HTTP PUT Method
-        // Requires no authentication.
-        // Returns a JSON object with status, message, headers, query, and env.
-        /*
-        var o = getJSONObjectForMovieRequirement(req);
-        o.status = 201;
-        o.message = "movie saved";
-        */
-
+    .post((req, res) => { // POST: saves a movie
         var movie = Movie();
         movie.title = req.params.movieparam;
         movie.releaseDate = req.body.releaseDate;
@@ -127,29 +133,11 @@ router.route('/movies/:movieparam')
             res.status(201).json({success: true, msg: 'Successfully created new movie.'})
         });
     })
-    .put(authJwtController.isAuthenticated, (req, res) => {
-        // HTTP PUT Method
-        // Requires JWT authentication.
-        // Returns a JSON object with status, message, headers, query, and env.
-        var o = getJSONObjectForMovieRequirement(req);
-        o.status = 200;
-        o.message = "movie updated";
-        res.json(o);
-    })
-    .delete(authController.isAuthenticated, (req, res) => {
-        // HTTP DELETE Method
-        // Requires Basic authentication.
-        // Returns a JSON object with status, message, headers, query, and env.
-        var o = getJSONObjectForMovieRequirement(req);
-        o.status = 200;
-        o.message = "movie deleted";
-        res.json(o);
-    })
-    .all((req, res) => {
-        // Any other HTTP Method
-        // Returns a message stating that the HTTP method is unsupported.
+    .all((req, res) => {  // Any other HTTP Method
         res.status(405).send({ message: 'HTTP method not supported.' });
     });
+
+
     
 
 app.use('/', router);
