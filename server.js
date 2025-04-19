@@ -87,6 +87,71 @@ router.post('/signin', function (req, res) {
     })
 });
 
+
+router.route('/movies/:movieparam')
+    .get((req, res) => {
+        // HTTP GET Method
+        // Requires no authentication.
+        // Returns a JSON object with status, message, headers, query, and env.
+        
+        /*var o = getJSONObjectForMovieRequirement(req);
+        o.status = 200;
+        o.message = "GET movies";
+        res.json(o);*/
+
+        res.status(200).json({ success: true, message: `Getting the movie, ${req.params.movieparam} and ${JSON.stringify(req.query)}.` });
+    })
+    .post((req, res) => {
+        // HTTP PUT Method
+        // Requires no authentication.
+        // Returns a JSON object with status, message, headers, query, and env.
+        /*
+        var o = getJSONObjectForMovieRequirement(req);
+        o.status = 201;
+        o.message = "movie saved";
+        */
+
+        var movie = Movie();
+        movie.title = req.params.movieparam;
+        movie.releaseDate = req.body.releaseDate;
+        movie.genre = req.body.genre;
+        movie.actors = req.body.actors;
+
+        movie.save(function(err){
+            if (err) {
+                if (err.code == 11000)
+                    return res.status(400).json({ success: false, message: 'A movie with that name already exists.'});
+                else
+                    return res.status(400).json(err);
+            }
+            res.status(201).json({success: true, msg: 'Successfully created new movie.'})
+        });
+    })
+    .put(authJwtController.isAuthenticated, (req, res) => {
+        // HTTP PUT Method
+        // Requires JWT authentication.
+        // Returns a JSON object with status, message, headers, query, and env.
+        var o = getJSONObjectForMovieRequirement(req);
+        o.status = 200;
+        o.message = "movie updated";
+        res.json(o);
+    })
+    .delete(authController.isAuthenticated, (req, res) => {
+        // HTTP DELETE Method
+        // Requires Basic authentication.
+        // Returns a JSON object with status, message, headers, query, and env.
+        var o = getJSONObjectForMovieRequirement(req);
+        o.status = 200;
+        o.message = "movie deleted";
+        res.json(o);
+    })
+    .all((req, res) => {
+        // Any other HTTP Method
+        // Returns a message stating that the HTTP method is unsupported.
+        res.status(405).send({ message: 'HTTP method not supported.' });
+    });
+    
+
 app.use('/', router);
 app.listen(process.env.PORT || 8080);
 module.exports = app; // for testing only

@@ -1,10 +1,11 @@
 {
-  "name": "csc3916_hw3",
+  "name": "csc3916_hw4",
   "version": "1.0.0",
-  "description": "Web API 3916 Homework 3",
+  "description": "Web API 3916 Homework 4",
   "main": "server.js",
   "scripts": {
-    "test": "mocha --timeout 10000 --exit"
+    "test": "mocha --timeout 10000 --exit",
+    "start": "node -r dotenv/config server.js"
   },
   "repository": {
     "type": "git",
