@@ -14,6 +14,7 @@ var cors = require('cors');
 var User = require('./Users');
 var Movie = require('./Movies');
 var Review = require('./Reviews');
+var mongoose = require('mongoose');
 
 var app = express();
 app.use(cors());
@@ -90,28 +91,11 @@ router.post('/signin', function (req, res) {
 // Movie routes without param (GET route only)
 
 router.route('/movies')
-    .get((req, res) => {
-        Movie.find().select('title releaseDate genre actors').exec((err, movieList) => {
-            if(err) return res.send(err);
-            return res.status(200).json(movieList);
-        });
-    })
-    .all((req, res) => {  // Any other HTTP Method
-        res.status(405).send({ message: 'HTTP method not supported.' });
-    });
-
-// Movie routes with param
-
-router.route('/movies/:movieparam')
-    .get((req, res) => { // GET: returns specified movie with review
+    .get(authJwtController.isAuthenticated, (req, res) => {
         var joinReviews = req.query.reviews === 'true';
-        var movieparam = req.params.movieparam;
 
         if(joinReviews) {
             Movie.aggregate([
-                {
-                    $match: { title: movieparam } // match by movie name
-                },
                 {
                     $lookup: { // join on _id and movieId fields
                         from: "reviews", 
@@ -119,34 +103,39 @@ router.route('/movies/:movieparam')
                         foreignField: "movieId", 
                         as: "reviews" 
                     }
+                },
+                {
+                  $addFields: {
+                    avgRating: { $avg: '$reviews.rating' }
+                  }
+                },
+                {
+                  $sort: { avgRating: -1 }
                 }
             ])
             .exec((err, result) => {
                 if(err) return res.status(400).send(err);
-    
-                if(result.length == 0) 
-                    return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+
+                else if(result.length == 0) 
+                    return res.status(404).send({success: false, message: `Movie not found.`});
                 
-                return res.status(200).json(result);
+                else return res.status(200).json(result);
             });
         }
         else {
-            Movie.findOne({ title: movieparam }).select('title releaseDate genre actors').exec((err, movie) => {
-                if(err) return res.status(400).send(err);
-    
-                if(movie === null) 
-                    return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
-                
-                return res.status(200).json(movie);
+            Movie.find().select('title releaseDate genre actors imageUrl').exec((err, movieList) => {
+                if(err) return res.send(err);
+                return res.status(200).json(movieList);
             });
         }
     })
-    .post((req, res) => { // POST: saves a movie
+    .post(authJwtController.isAuthenticated, (req, res) => { // POST: saves a movie
         var movie = Movie();
-        movie.title = req.params.movieparam;
+        movie.title = req.body.title;
         movie.releaseDate = req.body.releaseDate;
         movie.genre = req.body.genre;
         movie.actors = req.body.actors;
+        movie.imageUrl = req.body.imageUrl;
 
         movie.save(function(err){
             if (err) {
@@ -155,7 +144,104 @@ router.route('/movies/:movieparam')
                 else
                     return res.status(400).json(err);
             }
-            return res.status(201).json({success: true, msg: 'Successfully created new movie.'})
+            else return res.status(201).json({success: true, msg: 'Successfully created new movie.'})
+        });
+    })
+    .all(authJwtController.isAuthenticated, (req, res) => {  // Any other HTTP Method
+        res.status(405).send({ message: 'HTTP method not supported.' });
+    });
+
+// Movie routes with param
+
+router.route('/movies/:movieparam')
+    .get(authJwtController.isAuthenticated, (req, res) => { // GET: returns specified movie with review
+        var joinReviews = req.query.reviews === 'true';
+        var movieId = req.params.movieparam;
+
+        if(joinReviews) {
+            Movie.aggregate([
+                {
+                    $match: { _id: mongoose.Types.ObjectId(movieId) } // select movie id
+                },
+                {
+                    $lookup: { // join on _id and movieId fields
+                        from: "reviews", 
+                        localField: "_id", 
+                        foreignField: "movieId", 
+                        as: "reviews" 
+                    }
+                },
+                {
+                  $addFields: {
+                    avgRating: { $avg: '$reviews.rating' }
+                  }
+                }
+            ])
+            .exec((err, result) => {
+                if(err) return res.status(400).send(err);
+    
+                else if(result.length == 0) 
+                    return res.status(404).send({success: false, message: `Movie not found.`});
+                
+                else return res.status(200).json(result);
+            });
+        }
+        else {
+            Movie.findOne({ _id: mongoose.Types.ObjectId(movieId) })
+            .select('title releaseDate genre actors imageUrl').exec((err, movie) => {
+                if(err) return res.status(400).send(err);
+    
+                else if(movie === null) 
+                    return res.status(404).send({success: false, message: `Movie not found.`});
+                
+                else return res.status(200).json(movie);
+            });
+        }
+    })
+    .put(authJwtController.isAuthenticated, (req, res) => {
+        try {
+            var movieId = mongoose.Types.ObjectId(req.params.movieparam);
+        }
+        catch (error) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        Movie.findOne({ _id: movieId }).exec((err, movie) => {
+            if(err) return res.status(400).json({ success: false, message: err });
+
+            else if(movie == null) 
+                return res.status(404).json({ success: false, message: 'Movie not found.' });
+    
+            else {
+                if(req.body.title != null) 
+                    movie.title = req.body.title;
+                if(req.body.releaseDate != null) 
+                    movie.releaseDate = req.body.releaseDate;
+                if(req.body.genre != null) 
+                    movie.genre = req.body.genre;
+                if(req.body.actors != null)
+                    movie.actors = req.body.actors;
+                if(req.body.imageUrl != null)
+                    movie.imageUrl = req.body.imageUrl;
+        
+                Movie.replaceOne({ _id: movieId }, movie)
+                .exec((err, result) => {
+                    if(err) return res.status(400).send({ success: false, ...err });
+                    else return res.status(200).json({ success: true, message: "Movie updated." });
+                });
+            }
+        });
+    })
+    .delete(authJwtController.isAuthenticated, (req, res) => {
+        var movieId = req.params.movieparam;
+
+        Movie.deleteOne({ _id: mongoose.Types.ObjectId(movieId) })
+        .exec((err, result) => {
+            if(err) return res.status(400).send(err);
+
+            else if(result.deletedCount == 0)
+                res.status(404).json({ message: "Movie not found." });
+
+            else return res.status(200).json({ message: "Movie deleted." });
         });
     })
     .all((req, res) => {  // Any other HTTP Method
@@ -166,24 +252,27 @@ router.route('/movies/:movieparam')
 
 router.route('/movies/:movieparam/reviews')
     .post(authJwtController.isAuthenticated, (req, res) => { // POST: saves a movie review from req body
-        var movieparam = req.params.movieparam;
+        var movieId = req.params.movieparam;
 
-        Movie.findOne({ title: movieparam }).exec((err, movie) => {
+        Movie.findOne({ _id: movieId }).exec((err, movie) => {
             if(err) return res.status(400).send(err);
 
-            if(movie === null) 
-                return res.status(404).send({success: false, message: `Movie with the name "${movieparam}" not found.`});
+            else if(movie === null) 
+                return res.status(404).send({success: false, message: `Movie not found.`});
             
-            var newReview = Review();
-            newReview.movieId = movie._id;
-            newReview.username = req.body.username;
-            newReview.review = req.body.review;
-            newReview.rating = req.body.rating;
+            else {
+                var newReview = Review();
 
-            newReview.save((err) => {
-                if(err) return res.status(400).json({success: false, message: err});
-            });
-            return res.status(201).json(newReview);
+                newReview.movieId = movie._id;
+                newReview.username = req.body.username;
+                newReview.review = req.body.review;
+                newReview.rating = req.body.rating;
+
+                newReview.save((err) => {
+                    if(err) return res.status(400).json({success: false, message: err});
+                    return res.status(201).json(newReview);
+                });
+            }
         });
     })
     .all((req, res) => {  // Any other HTTP Method
